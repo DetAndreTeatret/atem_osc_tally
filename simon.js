@@ -9,25 +9,28 @@ const tallyOscAddress = '192.168.1.10';
 const tallyOscPort = 8000;
 
 //Weather to send different OSC signals when inputs are live on different M/Es
-const strictME = false; //TODO .properties
+const strictME = false; //TODO .properties //TODO implement thislol //TODO strict origion(program/dsk/usk)
 
 //Which sources are on air where?
-//Stored as X1.X2
-//X1 tells us where the source is used
-//X1 is either "M" or "D" in addition to a single number, not spaced.
-//"M" tells us that its used on a M/E row (program/transition/USK)
-//"D" tells us that its used on a DSK
+//Stored as location.source
+//location tells us where the source is used
+//location will be identical to the "pathToChange" given by atem-connection except
+//for when dealing with transitionPosition, where a PRO or PRE is added to designate which
+//part of the transition a source is
 //
-//X2 is the source that is used
-//e.g M0.3 means source 3 is on air through M/E row 0
-//and D1.4 means source 4 is on air through DSK 4
+//source is the source that is used
+//e.g video.ME.1.programInput.3 means source 3 is on air through the program output on M/E row 1
+//and video.ME.0.transitionPositionPRE.6 means source 6 is on air as the destination of the ongoing
+//transition on M/E row 0, [...]transitionPositionPRO[...] would be the origin picture in the transition
 //
-//This makes it possible to send seperate OSC signals for when sources are used on different M/E rows
+//This makes it possible to send separate OSC signals for when sources are used on different M/E rows
 //if for example only one row is the live output, while the other is for local monitoring
-const sourcesOnAir = new Set()
+//
+//if non strict is no path wow amazing
+const sourcesOnAir = new Set();
 
 let inTransition = false;
-let lastProgram = 1;
+let lastProgram = -1; //defined on startup
 
 const oscPort = new osc.UDPPort({
     localAddress: "0.0.0.0",
@@ -53,9 +56,9 @@ myAtem.connect(atemAddress).then(() => {
     }
     console.log("Checking atem state")
     //The cached atem state is not updated until first request or state change
-    //We request something here to force a state update, neccessary to read it's initial state
-    //Manually specify all paths that could be interesting
+    //We request something here to force a state update, necessary to read it's initial state
     myAtem.requestTime().then(() =>{
+        //Manually specify all paths that could be interesting to update initial tally state
         const MEs = myAtem.state.video.mixEffects
         const v = "video."
         const m = "ME."
@@ -65,8 +68,8 @@ myAtem.connect(atemAddress).then(() => {
             manualPaths.push(v + m + i + ".transitionPosition")
 
             const usks = MEs[i].upstreamKeyers
-            for (let i = 0; i > usks.length; i++) {
-                manualPaths.push(v + m + i + ".upstreamKeyers." + usks[i])
+            for (let j = 0; j > usks.length; j++) {
+                manualPaths.push(v + m + i + ".upstreamKeyers." + usks[j])
             }
         }
 
@@ -106,12 +109,9 @@ function updateState(state, pathToChange){
             const programInput = relevantME.programInput;
             const previewInput = relevantME.previewInput;
 
-            const newOnAir = []
-            const newOffAir = []
-
             if(location === "programInput"){
-                newOnAir.push(programInput)
-                newOffAir.push(lastProgram)
+                sourcesOnAir.add(path + "." + programInput)
+                sourcesOnAir.delete(path + "." + lastProgram)
 
                 lastProgram = programInput;
                 continue;
@@ -120,16 +120,16 @@ function updateState(state, pathToChange){
             if(location === "transitionPosition"){
                 //Transition done
                 if(relevantME.transitionPosition.handlePosition === 0){
-                    newOnAir.push(programInput)
-                    newOffAir.push(previewInput)
                     inTransition = false;
+                    sourcesOnAir.add(path + "." + programInput)
+                    sourcesOnAir.delete(path + "." + previewInput)
                 }
                 //Still in transition
                 else{
                     if(!inTransition) {
                         inTransition = true
-                        newOnAir.push(programInput)
-                        newOnAir.push(previewInput)
+                        sourcesOnAir.add(path + "." + programInput)
+                        sourcesOnAir.add(path + "." + previewInput)
                     }
                 }
                 continue
@@ -138,16 +138,8 @@ function updateState(state, pathToChange){
             if(location === "upstreamKeyers"){
                 const uskId = split_path[4]
                 const usk = relevantME.upstreamKeyers[uskId]
-                if(usk.onAir) newOnAir.push(usk.fillSource)
-                else newOffAir.push(usk.fillSource)
-            }
-
-            for (const source in newOnAir) {
-                sourcesOnAir.add("M" + MEId + "." + source)
-            }
-
-            for (const source in newOffAir) {
-                sourcesOnAir.delete("M" + MEId + "." + source)
+                if(usk.onAir) sourcesOnAir.add(path + "." + usk.fillSource)
+                else sourcesOnAir.delete(path + "." + usk.fillSource)
             }
 
         }
@@ -155,8 +147,8 @@ function updateState(state, pathToChange){
         if(path[1] === "downstreamKeyers"){
             const dskId = path[2] //TODO can dsk be audio??? confused
             const dsk = state.video.downstreamKeyers[dskId]
-            if(dsk.onAir) sourcesOnAir.add("D" + dskId + "." + dsk.sources.fillSource)
-            else sourcesOnAir.delete("D" + dskId + "." + dsk.sources.fillSource)
+            if(dsk.onAir) sourcesOnAir.add(path +  "." + dsk.sources.fillSource)
+            else sourcesOnAir.delete(path + "." + dsk.sources.fillSource)
         }
     }
 
@@ -173,31 +165,29 @@ function updateState(state, pathToChange){
         }
     }
 
-    for (const stuff in newActiveSources) {
-        startTally(stuff)
+    for (let i = 0; i < newActiveSources.size; i++) {
+        startTally(newActiveSources[i])
         sleep(0.2) //prevent packet loss
     }
 
-    for (const stuff in oldActiveSources) {
-        stopTally(stuff)
+    for (let i = 0; i < oldActiveSources.size; i++) {
+        stopTally(oldActiveSources[i])
         sleep(0.2) //prevent packet loss
     }
 }
 
-let activeTallies = new Set()
-
-//Tally functions gets a input and decides weather to send a start
-//packet, and where to send it.
+//Tally functions gets a input and decides weather to send an osc
+//message, and where to send it.
 //If a tally is already running, this wont send another trigger
 //If a tally is not running, calling stopTally wont send a trigger
 function startTally(id) {
+    const splitId = id.split('.')
+    const source = splitId[splitId.length - 1]
+    sourcesOnAir.add(id)
 
-    if (activeTallies.includes(strictME ? id : id.split("."[1]))) return;
-
-    activeTallies.add(id)
 
     oscPort.send({
-        address: createOSCAddress(id),
+        address: createOSCAddress(strictME ? id : source),
         args: [
             {
                 type: 'f',
@@ -209,11 +199,12 @@ function startTally(id) {
 
 
 function stopTally(id){
-    if(!activeTallies.delete(strictME ? id : id.split("."[1]))) return;
+    const splitId = id.split('.')
+    const source = splitId[splitId.length - 1]
+    sourcesOnAir.delete(id)
 
-    activeTallies.delete(id)
     oscPort.send({
-        address: createOSCAddress(id),
+        address: createOSCAddress(strictME ? id : source),
         args: [
             {
                 type: 'f',
@@ -230,10 +221,4 @@ function createOSCAddress(id){
 
 function sleep(n) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, n*1000);
-}
-
-function replaceParams(string, replacements) { //Thanks stackoverflow
-    return string.replace(/\{(\d+)\}/g, function() {
-        return replacements[arguments[1]];
-    });
 }
