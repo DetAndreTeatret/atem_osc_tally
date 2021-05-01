@@ -4,7 +4,6 @@
   "description": "DAT vibes",
   "main": "simon.js",
   "dependencies": {
-    "@nodegui/nodegui": "0.29.0",
     "atem-connection": "2.1.0",
     "osc": "2.4.1"
   },
