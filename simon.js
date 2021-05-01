@@ -3,10 +3,24 @@
 const { Atem } = require('atem-connection')
 const myAtem = new Atem()
 const osc = require('osc')
+const properties = require ("properties");
 
-const atemAddress = '192.168.1.240';
-const tallyOscAddress = '192.168.1.10';
-const tallyOscPort = 8000;
+let atemAddress = undefined;
+let tallyOscAddress = undefined;
+let tallyOscPort = undefined;
+let oscPrefix = undefined;
+
+properties.parse ("config.properties", { path: true }, function (error, obj){
+    if (error) return console.error (error);
+    console.log("Reading config...")
+
+    atemAddress = obj.atemAddress
+    tallyOscAddress = obj.tallyAddress
+    tallyOscPort = obj.tallyPort
+    oscPrefix = obj.oscPrefix
+
+    console.log("Config was read successfully!")
+});
 
 const oscPort = new osc.UDPPort({
     localAddress: "0.0.0.0",
@@ -109,7 +123,7 @@ function stopTally(id){
 }
 
 function createOSCAddress(id){
-  return '/exec/1/' + id
+  return oscPrefix + id
 }
 
 function sleep(n) {
