@@ -8,11 +8,8 @@ const atemAddress = '192.168.1.240';
 const tallyOscAddress = '192.168.1.10';
 const tallyOscPort = 8000;
 
-//Weather to send different OSC signals when inputs are live on different M/Es
-const strictME = false; //TODO .properties //TODO implement thislol //TODO strict origion(program/dsk/usk)
-
 //Which sources are on air where?
-//Stored as location.source
+//Stored as "location.source"
 //location tells us where the source is used
 //location will be identical to the "pathToChange" given by atem-connection except
 //for when dealing with transitionPosition, where a PRO or PRE is added to designate which
@@ -26,11 +23,13 @@ const strictME = false; //TODO .properties //TODO implement thislol //TODO stric
 //This makes it possible to send separate OSC signals for when sources are used on different M/E rows
 //if for example only one row is the live output, while the other is for local monitoring
 //
-//if non strict is no path wow amazing
+//if non strict only the source is passed, no matter where its live
 const sourcesOnAir = new Set();
 
+const strictME = false; //TODO .properties //TODO implement thislol
+
 let inTransition = false;
-let lastProgram = -1; //defined on startup
+let lastProgram = undefined; //defined on startup
 
 const oscPort = new osc.UDPPort({
     localAddress: "0.0.0.0",
@@ -49,12 +48,12 @@ oscPort.open()
 myAtem.on('error', console.error)
 
 myAtem.connect(atemAddress).then(() => {
-    console.log("Resetting lights...")
+    console.log("Resetting tally lights...")
     for (let i = 0; i < 8; i++) {
         stopTally(i + 1)
         sleep(0.2)
     }
-    console.log("Checking atem state")
+    console.log("Matching tally lights with current ATEM state...")
     //The cached atem state is not updated until first request or state change
     //We request something here to force a state update, necessary to read it's initial state
     myAtem.requestTime().then(() =>{
@@ -82,7 +81,7 @@ myAtem.connect(atemAddress).then(() => {
     })
 
 
-    console.log("Startup complete!")
+    console.log("Tally lights ready!")
 })
 
 myAtem.on('stateChanged', (state, pathToChange) => {
@@ -181,13 +180,8 @@ function updateState(state, pathToChange){
 //If a tally is already running, this wont send another trigger
 //If a tally is not running, calling stopTally wont send a trigger
 function startTally(id) {
-    const splitId = id.split('.')
-    const source = splitId[splitId.length - 1]
-    sourcesOnAir.add(id)
-
-
     oscPort.send({
-        address: createOSCAddress(strictME ? id : source),
+        address: createOSCAddress(id),
         args: [
             {
                 type: 'f',
@@ -199,12 +193,8 @@ function startTally(id) {
 
 
 function stopTally(id){
-    const splitId = id.split('.')
-    const source = splitId[splitId.length - 1]
-    sourcesOnAir.delete(id)
-
     oscPort.send({
-        address: createOSCAddress(strictME ? id : source),
+        address: createOSCAddress(id),
         args: [
             {
                 type: 'f',
@@ -215,8 +205,10 @@ function stopTally(id){
 }
 
 function createOSCAddress(id){
-  return '/exec/1/' + id.split(".")[1] //avoid strict
-    //TODO .properties
+    const splitId = id.split('.')
+    const source = splitId[splitId.length - 1]
+    sourcesOnAir.delete(id)
+  return '/exec/1/' + (strictME ? id : source)
 }
 
 function sleep(n) {
