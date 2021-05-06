@@ -3,10 +3,40 @@
 const { Atem } = require('atem-connection')
 const myAtem = new Atem()
 const osc = require('osc')
+const properties = require ("properties");
 
-const atemAddress = '192.168.1.240';
-const tallyOscAddress = '192.168.1.10';
-const tallyOscPort = 8000;
+let tallyOscAddress;
+let tallyOscPort;
+let oscPrefix;
+
+properties.parse ("config.properties", { path: true }, function (error, obj){
+    console.log("Reading config...")
+    if (error) return console.error (error);
+
+    tallyOscAddress = obj.tallyAddress
+    tallyOscPort = obj.tallyPort
+    oscPrefix = obj.oscPrefix
+
+    console.log("Config was read successfully!")
+
+    myAtem.connect(obj.atemAddress).then(() => {
+        console.log("Resetting lights...")
+        for (let i = 0; i < 8; i++) {
+            stopTally(i + 1)
+            sleep(0.2)
+        }
+        console.log("Checking atem state")
+        //The cached atem state is not updated until first request or state change
+        //We request something here to force a state update, neccessary to read it's initial state
+        myAtem.requestTime().then(() =>
+            //Manually specify all paths that could be interesting
+            updateState(myAtem.state, ["video.ME.0.programInput", "video.ME.0.transitionPosition", "video.ME.0.upstreamKeyers.0.onAir"]))
+
+        console.log("Startup complete!")
+    })
+
+
+});
 
 const oscPort = new osc.UDPPort({
     localAddress: "0.0.0.0",
@@ -23,22 +53,6 @@ oscPort.on('error', console.error)
 oscPort.open()
 
 myAtem.on('error', console.error)
-
-myAtem.connect(atemAddress).then(() => {
-    console.log("Resetting lights...")
-    for (let i = 0; i < 8; i++) {
-        stopTally(i + 1)
-        sleep(0.2)
-    }
-    console.log("Checking atem state")
-    //The cached atem state is not updated until first request or state change
-    //We request something here to force a state update, neccessary to read it's initial state
-    myAtem.requestTime().then(() =>
-        //Manually specify all paths that could be interesting
-        updateState(myAtem.state, ["video.ME.0.programInput", "video.ME.0.transitionPosition", "video.ME.0.upstreamKeyers.0.onAir"]))
-
-    console.log("Startup complete!")
-})
 
 myAtem.on('stateChanged', (state, pathToChange) => {
     updateState(state, pathToChange)
@@ -109,7 +123,7 @@ function stopTally(id){
 }
 
 function createOSCAddress(id){
-  return '/exec/1/' + id
+  return oscPrefix + id
 }
 
 function sleep(n) {
