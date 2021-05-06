@@ -11,6 +11,6 @@
     "start": "node simon.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "KingOfSquares",
   "license": "ISC"
 }
