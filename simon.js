@@ -5,7 +5,7 @@ const myAtem = new Atem()
 const osc = require('osc')
 
 const atemAddress = '192.168.1.240';
-const tallyOscAddress = '192.168.1.10';
+const tallyOscAddress = '192.168.1.105';
 const tallyOscPort = 8000;
 
 //Which sources are on air where?
@@ -24,9 +24,9 @@ const tallyOscPort = 8000;
 //if for example only one row is the live output, while the other is for local monitoring
 //
 //if non strict only the source is passed, no matter where its live
-const sourcesOnAir = new Set();
+const sourcesOnAir = []
 
-const strictME = false; //TODO .properties //TODO implement thislol
+const strictME = false; //TODO implement thislol
 
 let inTransition = false;
 let lastProgram = undefined; //defined on startup
@@ -50,7 +50,7 @@ myAtem.on('error', console.error)
 myAtem.connect(atemAddress).then(() => {
     console.log("Resetting tally lights...")
     for (let i = 0; i < 8; i++) {
-        stopTally(i + 1)
+        stopTally(i + 1 + "")
         sleep(0.2)
     }
     console.log("Matching tally lights with current ATEM state...")
@@ -78,20 +78,32 @@ myAtem.connect(atemAddress).then(() => {
         }
 
         updateState(myAtem.state, manualPaths)
+
+        console.log("Tally lights ready!")
     })
 
-
-    console.log("Tally lights ready!")
 })
 
 myAtem.on('stateChanged', (state, pathToChange) => {
     updateState(state, pathToChange)
 })
 
+sourcesOnAir.delete = function (source) {
+    for (let i = 0; i < sourcesOnAir.length; i++) {
+        let s = sourcesOnAir[i]
+        if(s === source){
+            let p = sourcesOnAir.splice(i, 1)
+            if(p[0] !== source) console.log("OAIJWDOIAWDOUAWD")
+        }
+    }
+}
+
 //Updates the local state, refreshing tallies if any changes has happened
 function updateState(state, pathToChange){
     //Cached to check difference after state update
-    const oldActiveSources = new Set(sourcesOnAir)
+    const oldActiveSources = [...sourcesOnAir]
+
+    console.log(pathToChange)
 
     for (let i = 0; i < pathToChange.length; i++) {
         let path = pathToChange[i]
@@ -100,7 +112,7 @@ function updateState(state, pathToChange){
 
         const split_path = path.split('.')
 
-        if(path[1] === "ME"){
+        if(split_path[1] === "ME"){
             const MEId = split_path[2]
             const location = split_path[3]
 
@@ -109,7 +121,7 @@ function updateState(state, pathToChange){
             const previewInput = relevantME.previewInput;
 
             if(location === "programInput"){
-                sourcesOnAir.add(path + "." + programInput)
+                sourcesOnAir.push(path + "." + programInput)
                 sourcesOnAir.delete(path + "." + lastProgram)
 
                 lastProgram = programInput;
@@ -120,15 +132,15 @@ function updateState(state, pathToChange){
                 //Transition done
                 if(relevantME.transitionPosition.handlePosition === 0){
                     inTransition = false;
-                    sourcesOnAir.add(path + "." + programInput)
+                    sourcesOnAir.push(path + "." + programInput)
                     sourcesOnAir.delete(path + "." + previewInput)
                 }
                 //Still in transition
                 else{
                     if(!inTransition) {
                         inTransition = true
-                        sourcesOnAir.add(path + "." + programInput)
-                        sourcesOnAir.add(path + "." + previewInput)
+                        sourcesOnAir.push(path + "." + programInput)
+                        sourcesOnAir.push(path + "." + previewInput)
                     }
                 }
                 continue
@@ -137,7 +149,7 @@ function updateState(state, pathToChange){
             if(location === "upstreamKeyers"){
                 const uskId = split_path[4]
                 const usk = relevantME.upstreamKeyers[uskId]
-                if(usk.onAir) sourcesOnAir.add(path + "." + usk.fillSource)
+                if(usk.onAir) sourcesOnAir.push(path + "." + usk.fillSource)
                 else sourcesOnAir.delete(path + "." + usk.fillSource)
             }
 
@@ -146,12 +158,12 @@ function updateState(state, pathToChange){
         if(path[1] === "downstreamKeyers"){
             const dskId = path[2] //TODO can dsk be audio??? confused
             const dsk = state.video.downstreamKeyers[dskId]
-            if(dsk.onAir) sourcesOnAir.add(path +  "." + dsk.sources.fillSource)
+            if(dsk.onAir) sourcesOnAir.push(path +  "." + dsk.sources.fillSource)
             else sourcesOnAir.delete(path + "." + dsk.sources.fillSource)
         }
     }
 
-    const newActiveSources = new Set(sourcesOnAir)
+    const newActiveSources = [...sourcesOnAir]
 
     //Check the difference between the new and old sources
     //Removes sources present in both sets, meaning they are unchanged
@@ -166,11 +178,13 @@ function updateState(state, pathToChange){
 
     for (let i = 0; i < newActiveSources.size; i++) {
         startTally(newActiveSources[i])
+        console.log(newActiveSources[i])
         sleep(0.2) //prevent packet loss
     }
 
     for (let i = 0; i < oldActiveSources.size; i++) {
         stopTally(oldActiveSources[i])
+        console.log(oldActiveSources[i])
         sleep(0.2) //prevent packet loss
     }
 }
